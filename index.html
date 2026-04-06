@@ -80,6 +80,7 @@
     <div class="f"><label>Частота выплат</label><select id="payF"><option value="3.3">Ежедневно (3.3%)</option><option value="2.8">Еженедельно, 1 нед. (2.8%)</option><option value="2.3" selected>Еженедельно, 2 нед. (2.3%)</option><option value="1.6">Еженедельно, 4 нед. (1.6%)</option></select></div>
     <div class="f"><label>Реклама, % от цены</label><input type="number" id="ads" value="5" min="0" max="100" step="0.5"><div class="hint">ДРР (доля рекламных расходов)</div></div>
     <div class="f"><label>Налоговый режим</label><select id="tax"><option value="none">Без налога (0%)</option><option value="usn6">УСН «Доходы» 6%</option><option value="usn15">УСН «Доходы−Расходы» 15%</option></select></div>
+    <div class="f"><label>НДС</label><select id="vat"><option value="0">Без НДС (0%)</option><option value="5">5%</option><option value="7">7%</option></select><div class="hint">Считается от цены покупателя. Вычитается из базы УСН.</div></div>
   </div>
 </div>
 
@@ -169,12 +170,17 @@ function calc(){
     retPerSale=retRate>0?(retRate/(1-retRate))*rcp:0;
   }
 
-  const totalCosts=cost+commission+lastMile+middleMile+stor+extra+acq+payout+ads+retPerSale+ohU;
+  const vatPct=+document.getElementById('vat').value;
+  const vatAmt=cp*vatPct/100;
+
+  const totalCosts=cost+commission+lastMile+middleMile+stor+extra+acq+payout+ads+retPerSale+ohU+vatAmt;
   const profitBT=yp-totalCosts;
 
+  // УСН считается от выручки после вычета НДС
+  const revenueAfterVat=cp-vatAmt;
   let taxAmt=0;
-  if(taxM==='usn6')taxAmt=cp*0.06;
-  else if(taxM==='usn15')taxAmt=Math.max(Math.max(0,cp-totalCosts)*0.15,cp*0.01);
+  if(taxM==='usn6')taxAmt=revenueAfterVat*0.06;
+  else if(taxM==='usn15')taxAmt=Math.max(Math.max(0,revenueAfterVat-totalCosts)*0.15,revenueAfterVat*0.01);
 
   const net=profitBT-taxAmt;
 
@@ -191,7 +197,10 @@ function calc(){
   items.push({n:'Хранение FBY',v:stor,c:'var(--red-bar)'},{n:'Перевод платежей ('+payP+'%)',v:payout,c:'var(--red-bar)'},{n:'Приём платежей (0.12₽/SKU)',v:acq,c:'var(--red-bar)'},{n:'Реклама ('+fd(adsPct)+'%)',v:ads,c:'var(--red-bar)'},{n:'Доп. расходы',v:extra,c:'var(--red-bar)'});
   if(!isFixed)items.push({n:'Возвраты ('+Math.round(retRate*100)+'% невыкуп)',v:retPerSale,c:'var(--red-bar)'});
   else items.push({n:'Возвраты (бесплатно)',v:0,c:'var(--red-bar)'});
-  items.push({n:'Косвенные ('+fmt(ohTotal)+'₽/'+fmt(ohQ)+' шт)',v:ohU,c:'var(--blue-bar)'},{n:'Налог '+(taxM==='none'?'0%':taxM==='usn6'?'УСН 6%':'УСН Д−Р')+' (от '+fmt(cp)+'₽)',v:taxAmt,c:'var(--amber-bar)'},{n:'Чистая прибыль',v:net,c:net>=0?'var(--green-bar)':'var(--red-bar)',total:true});
+  items.push({n:'Косвенные ('+fmt(ohTotal)+'₽/'+fmt(ohQ)+' шт)',v:ohU,c:'var(--blue-bar)'});
+  if(vatAmt>0)items.push({n:'НДС ('+vatPct+'% от '+fmt(cp)+'₽)',v:vatAmt,c:'var(--amber-bar)'});
+  const taxLabel=taxM==='none'?'Налог 0%':taxM==='usn6'?'УСН 6% (от '+fmt(revenueAfterVat)+'₽)':'УСН Д−Р (от '+fmt(revenueAfterVat)+'₽)';
+  items.push({n:taxLabel,v:taxAmt,c:'var(--amber-bar)'},{n:'Чистая прибыль',v:net,c:net>=0?'var(--green-bar)':'var(--red-bar)',total:true});
 
   const mx=Math.max(yp,...items.map(i=>Math.abs(i.v)));
   let h='';
@@ -203,10 +212,11 @@ function calc(){
   }
   document.getElementById('wf').innerHTML=h;
 
-  const tn=taxM==='none'?'<b>Налог:</b> 0₽ (не учитывается).':taxM==='usn6'?`<b>УСН Доходы:</b> ${fmt(cp)}₽ × 6% = ${fmt(taxAmt)}₽.`:`<b>УСН Д−Р:</b> ${fmt(cp)}₽ − ${fmt(totalCosts)}₽ = ${fmt(Math.max(0,cp-totalCosts))}₽ × 15% = ${fmt(Math.max(0,cp-totalCosts)*0.15)}₽, мин 1% = ${fmt(cp*0.01)}₽ → ${fmt(taxAmt)}₽.`;
+  const vatNote=vatAmt>0?` <b>НДС:</b> ${fmt(cp)}₽ × ${vatPct}% = ${fmt(vatAmt)}₽. Выручка после НДС: ${fmt(revenueAfterVat)}₽.`:'';
+  const tn=taxM==='none'?'<b>Налог:</b> 0₽ (не учитывается).':taxM==='usn6'?`<b>УСН Доходы:</b> ${fmt(revenueAfterVat)}₽ (после НДС) × 6% = ${fmt(taxAmt)}₽.`:`<b>УСН Д−Р:</b> ${fmt(revenueAfterVat)}₽ (после НДС) − ${fmt(totalCosts)}₽ (расходы) = ${fmt(Math.max(0,revenueAfterVat-totalCosts))}₽ × 15%, мин 1% от ${fmt(revenueAfterVat)}₽ → ${fmt(taxAmt)}₽.`;
   const mn=isFixed?`<b>Фикс. тариф:</b> ≤300₽ и ≤5л → ${fixEff}% покрывает всё (размещение + логистика + возвраты). Отдельно перевод платежей.`:`<b>Средняя миля (апрель 2026):</b> 80₽ до 1л + 9₽/л (1–30л) + 7₽/л (30–200л) + 5₽/л (200+л), потолок 5500₽. Объём: ${vol} л → ${fmt(middleMile)}₽.`;
 
-  document.getElementById('info').innerHTML=`${mn} <b>Соинвест</b> — скидка ЯМ за свой счёт, не расход. Вы получаете ${fmt(yp)}₽, покупатель платит ${fmt(cp)}₽, налог от ${fmt(cp)}₽. ${tn}`+(!isFixed&&retRate>0?` <b>Возвраты:</b> ${fd(retRate/(1-retRate))} возвр. ед./продажу → ${fmt(retPerSale)}₽.`:'');
+  document.getElementById('info').innerHTML=`${mn} <b>Соинвест</b> — скидка ЯМ за свой счёт, не расход. Вы получаете ${fmt(yp)}₽, покупатель платит ${fmt(cp)}₽.${vatNote} ${tn}`+(!isFixed&&retRate>0?` <b>Возвраты:</b> ${fd(retRate/(1-retRate))} возвр. ед./продажу → ${fmt(retPerSale)}₽.`:'');
 }
 
 document.getElementById('comm').addEventListener('input',function(){document.getElementById('commN').value=this.value;calc()});
